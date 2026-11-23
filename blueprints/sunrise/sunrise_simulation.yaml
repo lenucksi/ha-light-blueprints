@@ -1,0 +1,462 @@
+blueprint:
+  name: "Sunrise Simulation (RGB-CCT)"
+  description: |
+    ## Künstlicher Sonnenaufgang für beliebige RGB-CCT-Lampen
+
+    Fährt die gewählten Lampen über eine konfigurierbare Zeitspanne von einer
+    Startfarbe (Default: tiefes Rot/Orange) über warmes Weiß bis zum gewünschten
+    End-Weiß (Kelvin) — mit steigender Helligkeit. Gedacht für den Winter
+    (künstliche Aufgangszeit), funktioniert aber das ganze Jahr.
+
+    ### Features
+    - **Startzeit-Modi** (wie Adaptive Lighting):
+      - `fixed` — feste Uhrzeit (z. B. 06:30)
+      - `sunrise_offset` — relativ zum echten Sonnenaufgang (Minuten-Offset)
+      - `clamped` — Sonnenaufgang + Offset, begrenzt auf min/max-Uhrzeit
+    - RGB-Warmphase → CCT-Übergang (Kelvin) in konfigurierbarem Verhältnis
+    - Helligkeitsrampe mit Gamma-Kurve
+    - Capability-Erkennung: RGB-fähige Lampen per Farbe, reine CT-Lampen per Kelvin
+    - Manuell ausgeschaltete Lampen werden übersprungen (andere laufen weiter)
+    - Optional: Adaptive-Lighting-Profile während der Simulation pausieren
+    - Optional: Reconnect-Button für BLE-Lampen (z. B. Beurer TL100)
+
+    > Tipp: 15–20 Minuten fühlen sich am natürlichsten an.
+    > Den Abend (Wind-down) macht Adaptive Lighting; dieser Blueprint ist der Morgen.
+  domain: automation
+  author: lenucksi
+  homeassistant:
+    min_version: "2024.4.0"
+  input:
+    target_lights:
+      name: "Ziellampen"
+      description: "Lampen, die den Sonnenaufgang fahren sollen (RGB-CCT oder CCT)."
+      selector:
+        entity:
+          domain: light
+          multiple: true
+
+    start_mode:
+      name: "Startzeit-Modus"
+      description: >-
+        fixed = feste Uhrzeit · sunrise_offset = relativ zum echten Sonnenaufgang ·
+        clamped = Sonnenaufgang + Offset, begrenzt auf min/max.
+      default: "fixed"
+      selector:
+        select:
+          options:
+            - label: "Feste Uhrzeit"
+              value: "fixed"
+            - label: "Relativ zum Sonnenaufgang"
+              value: "sunrise_offset"
+            - label: "Sonnenaufgang mit min/max-Grenzen"
+              value: "clamped"
+
+    start_time:
+      name: "Startzeit (fixed)"
+      description: "Uhrzeit für Modus 'fixed'. In den anderen Modi ignoriert."
+      default: "06:30:00"
+      selector:
+        time: {}
+
+    sunrise_offset:
+      name: "Offset zum Sonnenaufgang (Minuten)"
+      description: "Negativ = vor Sonnenaufgang (z. B. -60 = 60 min vorher)."
+      default: -60
+      selector:
+        number:
+          min: -240
+          max: 240
+          step: 5
+          unit_of_measurement: "min"
+
+    min_start_time:
+      name: "Früheste Startzeit (clamped)"
+      default: "05:30:00"
+      selector:
+        time: {}
+
+    max_start_time:
+      name: "Späteste Startzeit (clamped)"
+      default: "08:30:00"
+      selector:
+        time: {}
+
+    duration_min:
+      name: "Dauer (Minuten)"
+      description: "Wie lange die Rampe bis zum End-Weiß dauert."
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 120
+          step: 1
+          unit_of_measurement: "min"
+
+    step_seconds:
+      name: "Schritt-Takt (Sekunden)"
+      description: "Abstand zwischen den Updates. 30 s ist ein guter Default."
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 120
+          step: 5
+          unit_of_measurement: "s"
+
+    start_color:
+      name: "Startfarbe (RGB)"
+      description: "Farbe am Anfang. Default ist tiefes Rot/Orange."
+      default: [255, 100, 20]
+      selector:
+        color_rgb: {}
+
+    rgb_phase:
+      name: "Anteil RGB-Phase (0–1)"
+      description: >-
+        Bis zu welchem Fortschritt RGB gefahren wird; danach wird auf Kelvin
+        (weiß) umgeschaltet. 0 = nie RGB, 1 = nur RGB.
+      default: 0.6
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.05
+
+    warm_ct_kelvin:
+      name: "Kelvin am RGB→CCT-Übergang"
+      description: "Kelvin-Wert, mit dem die Kelvin-Rampe startet."
+      default: 2000
+      selector:
+        number:
+          min: 1500
+          max: 5000
+          step: 100
+          unit_of_measurement: "K"
+
+    end_kelvin:
+      name: "End-Weiß (Kelvin)"
+      description: "Ziel-Farbtemperatur am Ende (z. B. 4000–5300 K)."
+      default: 4500
+      selector:
+        number:
+          min: 1500
+          max: 6500
+          step: 100
+          unit_of_measurement: "K"
+
+    start_brightness:
+      name: "Start-Helligkeit (%)"
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    max_brightness:
+      name: "Max-Helligkeit am Ende (%)"
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    brightness_gamma:
+      name: "Helligkeits-Gamma"
+      description: "> 1 = unten langsamer, oben schneller. 1.5 wirkt natürlich."
+      default: 1.5
+      selector:
+        number:
+          min: 0.5
+          max: 3
+          step: 0.1
+
+    hold_min:
+      name: "Haltezeit nach der Rampe (Minuten)"
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 5
+          unit_of_measurement: "min"
+
+    end_action:
+      name: "Nach der Simulation"
+      default: "stay"
+      selector:
+        select:
+          options:
+            - label: "An lassen (End-Weiß)"
+              value: "stay"
+            - label: "Aus (mit Retry)"
+              value: "off"
+            - label: "Leselicht (4000 K, 80 %)"
+              value: "reading"
+
+    schedule_days:
+      name: "Aktive Tage"
+      default: "workdays"
+      selector:
+        select:
+          options:
+            - label: "Werktage (Mo–Fr)"
+              value: "workdays"
+            - label: "Wochenende (Sa–So)"
+              value: "weekends"
+            - label: "Täglich"
+              value: "daily"
+
+    reconnect_button:
+      name: "Reconnect-Button (optional)"
+      description: "Wird gedrückt, wenn eine Ziellampe nicht verfügbar ist (BLE-Lampen)."
+      default: {}
+      selector:
+        entity:
+          domain: button
+
+    pause_adaptive_lighting:
+      name: "Adaptive Lighting pausieren"
+      description: "Setzt die gewählten AL-Profile während der Simulation auf manual_control."
+      default: false
+      selector:
+        boolean: {}
+
+    adaptive_lighting_switches:
+      name: "Adaptive-Lighting-Switches (optional)"
+      default: []
+      selector:
+        entity:
+          domain: switch
+          multiple: true
+
+variables:
+  lights: !input target_lights
+  start_mode: !input start_mode
+  start_time: !input start_time
+  sunrise_offset: !input sunrise_offset
+  min_start_time: !input min_start_time
+  max_start_time: !input max_start_time
+  duration_min: !input duration_min
+  step_seconds: !input step_seconds
+  start_color: !input start_color
+  rgb_phase: !input rgb_phase
+  warm_ct: !input warm_ct_kelvin
+  end_kelvin: !input end_kelvin
+  start_brightness: !input start_brightness
+  max_brightness: !input max_brightness
+  gamma: !input brightness_gamma
+  hold_min: !input hold_min
+  end_action: !input end_action
+  schedule: !input schedule_days
+  reconnect_btn: !input reconnect_button
+  pause_al: !input pause_adaptive_lighting
+  al_switches: !input adaptive_lighting_switches
+  total_steps: "{{ [ (duration_min * 60 / step_seconds) | round(0) | int, 1 ] | max }}"
+
+trigger:
+  # Minutenraster: der Startzeitpunkt wird in den Conditions berechnet
+  # (deckt fixed / sunrise_offset / clamped einheitlich ab).
+  - platform: time_pattern
+    minutes: "/1"
+
+condition:
+  # 1) Wochentagsfilter
+  - condition: template
+    value_template: >-
+      {% set day = now().weekday() %}
+      {{ (schedule == 'daily')
+         or (schedule == 'workdays' and day < 5)
+         or (schedule == 'weekends' and day >= 5) }}
+  # 2) Startzeitpunkt erreicht? (Toleranzfenster bis 2 Minuten)
+  - condition: template
+    value_template: >-
+      {% set sr = as_timestamp(state_attr('sun.sun', 'next_rising')) if state_attr('sun.sun', 'next_rising') else none %}
+      {% if start_mode == 'fixed' or sr is none %}
+        {% set s = as_timestamp(today_at(start_time)) %}
+      {% elif start_mode == 'sunrise_offset' %}
+        {% set s = sr + sunrise_offset * 60 %}
+      {% else %}
+        {% set base = sr + sunrise_offset * 60 %}
+        {% set lo = as_timestamp(today_at(min_start_time)) %}
+        {% set hi = as_timestamp(today_at(max_start_time)) %}
+        {# Clamp nur, wenn der Basispunkt heute liegt (sonst wäre der "nächste" Aufgang morgen) #}
+        {% set s = ([[base, lo] | max, hi] | min) if base < hi else base %}
+      {% endif %}
+      {{ as_timestamp(now()) >= s and as_timestamp(now()) < s + 120 }}
+
+action:
+  # 1) Reconnect-Versuch, wenn eine Ziellampe nicht verfügbar ist
+  - if:
+      - condition: template
+        value_template: >-
+          {{ reconnect_btn is string and reconnect_btn != ''
+             and (lights | select('is_state', 'unavailable') | list | length > 0) }}
+    then:
+      - action: button.press
+        target:
+          entity_id: "{{ reconnect_btn }}"
+      - delay:
+          seconds: 15
+
+  # 2) Optional Adaptive Lighting pausieren
+  - if:
+      - condition: template
+        value_template: "{{ pause_al and al_switches | length > 0 }}"
+    then:
+      - action: adaptive_lighting.set_manual_control
+        target:
+          entity_id: "{{ al_switches }}"
+        data:
+          manual_control: true
+
+  # 3) Startzustand setzen (Helligkeit + Startfarbe je Lampentyp)
+  - repeat:
+      for_each: "{{ lights }}"
+      sequence:
+        - variables:
+            light_entity: "{{ repeat.item }}"
+            modes: "{{ state_attr(light_entity, 'supported_color_modes') or [] }}"
+            has_rgb: >-
+              {{ modes | select('in', ['rgb', 'rgbw', 'rgbww', 'hs', 'xy']) | list | length > 0 }}
+        - choose:
+            - conditions: "{{ has_rgb }}"
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: "{{ light_entity }}"
+                  data:
+                    brightness_pct: "{{ start_brightness }}"
+                    rgb_color:
+                      - "{{ start_color[0] }}"
+                      - "{{ start_color[1] }}"
+                      - "{{ start_color[2] }}"
+                    transition: 2
+          default:
+            - action: light.turn_on
+              target:
+                entity_id: "{{ light_entity }}"
+              data:
+                brightness_pct: "{{ start_brightness }}"
+                color_temp_kelvin: "{{ warm_ct }}"
+                transition: 2
+
+  # 4) Rampe
+  - repeat:
+      count: "{{ total_steps }}"
+      sequence:
+        - variables:
+            step: "{{ repeat.index }}"
+            progress: "{{ repeat.index / total_steps }}"
+            bright: >-
+              {{ (start_brightness + (max_brightness - start_brightness) * (progress ** gamma))
+                 | round(0) | int }}
+            rgb_t: >-
+              {{ ([progress / rgb_phase, 1] | min) if rgb_phase > 0 else 1 }}
+            r: "{{ (start_color[0] + (255 - start_color[0]) * rgb_t) | round(0) | int }}"
+            g: "{{ (start_color[1] + (235 - start_color[1]) * rgb_t) | round(0) | int }}"
+            b: "{{ (start_color[2] + (210 - start_color[2]) * rgb_t) | round(0) | int }}"
+            ct_t: >-
+              {{ 0 if (progress <= rgb_phase or rgb_phase >= 1)
+                 else ([(progress - rgb_phase) / (1 - rgb_phase), 1] | min) }}
+            ct: "{{ (warm_ct + (end_kelvin - warm_ct) * ct_t) | round(0) | int }}"
+        - repeat:
+            for_each: "{{ lights | reject('is_state', 'off') | list }}"
+            sequence:
+              - variables:
+                  light_entity: "{{ repeat.item }}"
+                  modes: "{{ state_attr(light_entity, 'supported_color_modes') or [] }}"
+                  has_rgb: >-
+                    {{ modes | select('in', ['rgb', 'rgbw', 'rgbww', 'hs', 'xy']) | list | length > 0 }}
+              - choose:
+                  - conditions: "{{ progress <= rgb_phase and has_rgb }}"
+                    sequence:
+                      - action: light.turn_on
+                        target:
+                          entity_id: "{{ light_entity }}"
+                        data:
+                          brightness_pct: "{{ bright }}"
+                          rgb_color: ["{{ r }}", "{{ g }}", "{{ b }}"]
+                          transition: "{{ step_seconds }}"
+                default:
+                  - action: light.turn_on
+                    target:
+                      entity_id: "{{ light_entity }}"
+                    data:
+                      brightness_pct: "{{ bright }}"
+                      color_temp_kelvin: "{{ ct }}"
+        - delay:
+            seconds: "{{ step_seconds }}"
+
+  # 5) Endzustand: volles End-Weiß (erzwingt bei RGB-Lampen den Weiß-Modus)
+  - repeat:
+      for_each: "{{ lights | reject('is_state', 'off') | list }}"
+      sequence:
+        - variables:
+            end_light: "{{ repeat.item }}"
+        - repeat:
+            count: 3
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: "{{ end_light }}"
+                data:
+                  brightness_pct: "{{ max_brightness }}"
+                  color_temp_kelvin: "{{ end_kelvin }}"
+              - delay:
+                  seconds: 5
+              - condition: template
+                value_template: >-
+                  {{ state_attr(end_light, 'color_mode') not in ['color_temp', 'white'] }}
+
+  # 6) Haltezeit
+  - if:
+      - condition: template
+        value_template: "{{ hold_min > 0 }}"
+    then:
+      - delay:
+          minutes: "{{ hold_min }}"
+
+  # 7) End-Aktion
+  - choose:
+      - conditions: "{{ end_action == 'reading' }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ lights }}"
+            data:
+              brightness_pct: 80
+              color_temp_kelvin: 4000
+              transition: 10
+      - conditions: "{{ end_action == 'off' }}"
+        sequence:
+          - repeat:
+              count: 3
+              sequence:
+                - action: light.turn_off
+                  target:
+                    entity_id: "{{ lights }}"
+                  data:
+                    transition: 5
+                - delay:
+                    seconds: 10
+                - condition: template
+                  value_template: >-
+                    {{ (lights | select('is_state', 'off') | list | length) < (lights | length) }}
+
+  # 8) Adaptive Lighting wieder freigeben
+  - if:
+      - condition: template
+        value_template: "{{ pause_al and al_switches | length > 0 }}"
+    then:
+      - action: adaptive_lighting.set_manual_control
+        target:
+          entity_id: "{{ al_switches }}"
+        data:
+          manual_control: false
+
+mode: single
+max_exceeded: silent

@@ -1,0 +1,14 @@
+ha-light-blueprints
+Copyright 2026 lenucksi
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this project except in compliance with the License. You may obtain a copy at
+http://www.apache.org/licenses/LICENSE-2.0
+
+Third-party notices:
+
+- The night-mode blueprint was developed in a fork of Adaptive Lighting
+  (https://github.com/basnijholt/adaptive-lighting), which is licensed under
+  the Apache License, Version 2.0. Copyright the Adaptive Lighting contributors.
+- The sunrise-simulation blueprint is authored by lenucksi and was previously
+  distributed as a standalone blueprint.

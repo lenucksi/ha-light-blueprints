@@ -1,0 +1,18 @@
+# Paste into configuration.yaml (or an included helpers file) and restart HA.
+input_boolean:
+  night_mode_active:
+    name: Night Mode active
+input_number:
+  night_mode_dim_step:
+    name: Night Mode dim step
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+input_text:
+  night_mode_active_lights:
+    name: Night Mode touched lights
+    max: 255
+  night_mode_pending_lights:
+    name: Night Mode pending white lights
+    max: 255

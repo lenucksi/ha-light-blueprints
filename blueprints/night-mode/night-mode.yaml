@@ -1,0 +1,679 @@
+blueprint:
+  name: "Adaptive Lighting: night mode"
+  description: >-
+    Submarine-style night mode for lights managed by Adaptive Lighting. At the
+    scheduled time the selected Adaptive Lighting profile switches are paused
+    through their existing services, the selected lights are set to red and
+    dimmed down in ten interruptible steps, and they are restored to warm white
+    in the morning. Lights that are off at activation turn red when switched on
+    later, unless the restore is imminent. Four helpers are required: an
+    input_boolean for the active state, an input_number for the current dim
+    step, and two input_text helpers holding compact index lists of touched and
+    pending lights. A sunrise automation can be selected to end the night early
+    and take precedence over the selected sunrise lights. On Home Assistant
+    startup an active night mode is cleared and the Adaptive Lighting switches
+    are re-enabled, so a restart can never leave Adaptive Lighting paused
+    indefinitely.
+  domain: automation
+  source_url: https://github.com/lenucksi/adaptive-lighting/blob/feature/night-mode-blueprint/blueprints/automation/night-mode.yaml
+  author: Adaptive Lighting Team
+  homeassistant:
+    min_version: "2025.9.0"
+  input:
+    active_helper:
+      name: Night mode active helper
+      description: input_boolean that stores the active state.
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    dim_step_helper:
+      name: Dim step helper
+      description: input_number (0-10, step 1) that stores the current dim step.
+      selector:
+        entity:
+          filter:
+            domain: input_number
+    active_lights_helper:
+      name: Touched lights helper
+      description: >-
+        input_text holding the comma-separated 1-based indices of the lights in
+        the Lights list that were active during this night. Indices keep the
+        value well below the 255 character limit of input_text.
+      selector:
+        entity:
+          filter:
+            domain: input_text
+    pending_lights_helper:
+      name: Pending white lights helper
+      description: >-
+        input_text holding the comma-separated 1-based indices of lights that
+        need a white command the next time they are switched on.
+      selector:
+        entity:
+          filter:
+            domain: input_text
+    al_switches:
+      name: Adaptive Lighting profile switches
+      description: >-
+        Main profile switches to pause during the night. Not the sleep-mode or
+        adaptation child switches.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: switch
+            integration: adaptive_lighting
+    al_sleep_switches:
+      name: Adaptive Lighting sleep-mode switches
+      description: >-
+        Child sleep-mode switches of the profiles above. Only needed when
+        "Use Adaptive Lighting sleep mode" is enabled; leave empty otherwise.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: switch
+            integration: adaptive_lighting
+    lights:
+      name: Lights
+      description: Lights to dim red and restore, in a fixed order.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: light
+    sunrise_automation:
+      name: Sunrise automation
+      description: >-
+        Optional automation that takes precedence in the morning. When it
+        starts, the night ends immediately and its lights are left to it. Leave
+        empty to restore at sunrise or at the fixed restore time instead.
+      default: {}
+      selector:
+        entity:
+          filter:
+            domain: automation
+    sunrise_lights:
+      name: Sunrise lights
+      description: >-
+        Lights controlled by the sunrise automation. They stay in night mode
+        until the handover, then the sunrise automation owns them.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: light
+    sunrise_handover_time:
+      name: Sunrise handover time
+      description: >-
+        Time at which the sunrise lights are handed over to the sunrise
+        automation. The start of the sunrise automation also triggers the
+        handover. Only used when a sunrise automation is selected.
+      default: "05:30:00"
+      selector:
+        time: {}
+    start_time:
+      name: Start time
+      default: "23:00:00"
+      selector:
+        time: {}
+    days_of_week:
+      name: Days of week
+      default:
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+        - sat
+        - sun
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+          custom_value: false
+    dim_duration:
+      name: Dim duration in minutes
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+    min_brightness_pct:
+      name: Minimum brightness in percent
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: "%"
+    rgb_preset:
+      name: Night color
+      default: red
+      selector:
+        select:
+          options:
+            - value: red
+              label: Red (255, 0, 0)
+            - value: blue
+              label: Blue (0, 64, 255)
+            - value: custom
+              label: Custom RGB
+          custom_value: false
+    rgb_custom:
+      name: Custom RGB color
+      description: Only used when night color is Custom RGB.
+      default: [255, 0, 0]
+      selector:
+        color_rgb: {}
+    al_sleep_mode:
+      name: Use Adaptive Lighting sleep mode
+      description: >-
+        Set a matching sleep_rgb_color and enable the selected sleep-mode
+        switches instead of turning the Adaptive Lighting profile switches off.
+      default: false
+      selector:
+        boolean: {}
+    restore_mode:
+      name: Restore mode
+      default: sunrise
+      selector:
+        select:
+          options:
+            - value: sunrise
+              label: At sunrise
+            - value: fixed
+              label: At a fixed time
+          custom_value: false
+    restore_time:
+      name: Fixed restore time
+      description: Only used when restore mode is At a fixed time.
+      default: "06:00:00"
+      selector:
+        time: {}
+    restore_brightness_pct:
+      name: Restore brightness in percent
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    restore_color_temp:
+      name: Restore color temperature in Kelvin
+      default: 2700
+      selector:
+        number:
+          min: 1000
+          max: 10000
+          unit_of_measurement: K
+    restore_transition:
+      name: Restore transition in seconds
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: s
+
+variables:
+  active_helper: !input active_helper
+  dim_step_helper: !input dim_step_helper
+  active_lights_helper: !input active_lights_helper
+  pending_lights_helper: !input pending_lights_helper
+  al_switches: !input al_switches
+  al_sleep_switches: !input al_sleep_switches
+  lights: !input lights
+  sunrise_automation: !input sunrise_automation
+  sunrise_lights: !input sunrise_lights
+  sunrise_handover_time: !input sunrise_handover_time
+  days_of_week: !input days_of_week
+  dim_duration: !input dim_duration
+  min_brightness_pct: !input min_brightness_pct
+  rgb_preset: !input rgb_preset
+  rgb_custom: !input rgb_custom
+  al_sleep_mode: !input al_sleep_mode
+  restore_mode: !input restore_mode
+  restore_time: !input restore_time
+  restore_time_str: "{{ restore_time }}"
+  restore_brightness_pct: !input restore_brightness_pct
+  restore_color_temp: !input restore_color_temp
+  restore_transition: !input restore_transition
+  night_rgb: >-
+    {% if rgb_preset == 'blue' %}
+      [0, 64, 255]
+    {% elif rgb_preset == 'custom' %}
+      {% if rgb_custom is mapping %}
+        [{{ rgb_custom.get('r', 0) | int }}, {{ rgb_custom.get('g', 0) | int }}, {{ rgb_custom.get('b', 0) | int }}]
+      {% else %}
+        {{ rgb_custom }}
+      {% endif %}
+    {% else %}
+      [255, 0, 0]
+    {% endif %}
+  on_lights: "{{ lights | select('is_state', 'on') | list }}"
+  touched_indices: >-
+    {{ (states(active_lights_helper) or '').replace(' ', '').split(',')
+       | reject('eq', '') | list }}
+  pending_indices: >-
+    {{ (states(pending_lights_helper) or '').replace(' ', '').split(',')
+       | reject('eq', '') | list }}
+  touched_lights: >-
+    {% set ns = namespace(items=[]) %}
+    {% for index in touched_indices %}
+      {% if index | int >= 1 and index | int <= lights | length %}
+        {% set ns.items = ns.items + [lights[index | int - 1]] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.items }}
+  step_interval: "{{ dim_duration * 6 }}"
+
+triggers:
+  - id: start
+    trigger: time
+    at: !input start_time
+  - id: restore_sunrise
+    trigger: sun
+    event: sunrise
+  - id: restore_fixed
+    trigger: time
+    at: !input restore_time
+  - id: start_event
+    trigger: event
+    event_type: night_mode_start
+  - id: restore_event
+    trigger: event
+    event_type: night_mode_restore
+  - id: handover_automation
+    trigger: event
+    event_type: automation_triggered
+  - id: handover_time
+    trigger: time
+    at: !input sunrise_handover_time
+  - id: startup
+    trigger: homeassistant
+    event: start
+  - id: light_on
+    trigger: state
+    entity_id: !input lights
+    from: "off"
+    to: "on"
+
+conditions: []
+
+actions:
+  - choose:
+      # ------------------------------------------------------------------ START
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id in ['start', 'start_event'] }}"
+          - condition: template
+            value_template: >-
+              {{ trigger.id != 'start'
+                 or (now().strftime('%a') | lower) in days_of_week }}
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input active_helper
+                    state: "off"
+                sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input active_helper
+                  - action: input_number.set_value
+                    target:
+                      entity_id: !input dim_step_helper
+                    data:
+                      value: 0
+                  - action: input_text.set_value
+                    target:
+                      entity_id: !input active_lights_helper
+                    data:
+                      value: >-
+                        {% set ns = namespace(items=[]) %}
+                        {% for light in lights %}
+                          {% if is_state(light, 'on') %}
+                            {% set ns.items = ns.items + [loop.index | string] %}
+                          {% endif %}
+                        {% endfor %}
+                        {{ ns.items | join(', ') }}
+                  - action: input_text.set_value
+                    target:
+                      entity_id: !input pending_lights_helper
+                    data:
+                      value: ""
+                  - repeat:
+                      for_each: "{{ al_switches }}"
+                      sequence:
+                        - action: adaptive_lighting.set_manual_control
+                          data:
+                            entity_id: "{{ repeat.item }}"
+                            lights: !input lights
+                            manual_control: true
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ al_sleep_mode }}"
+                        sequence:
+                          - action: adaptive_lighting.change_switch_settings
+                            data:
+                              entity_id: !input al_switches
+                              sleep_rgb_or_color_temp: rgb_color
+                              sleep_rgb_color: "{{ night_rgb }}"
+                          - action: switch.turn_on
+                            target:
+                              entity_id: !input al_sleep_switches
+                      - conditions: []
+                        sequence:
+                          - action: switch.turn_off
+                            target:
+                              entity_id: !input al_switches
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ on_lights | length > 0 }}"
+                        sequence:
+                          - action: light.turn_on
+                            target:
+                              entity_id: "{{ on_lights }}"
+                            data:
+                              rgb_color: "{{ night_rgb }}"
+                  - repeat:
+                      count: 10
+                      sequence:
+                        - condition: state
+                          entity_id: !input active_helper
+                          state: "on"
+                        - action: input_number.set_value
+                          target:
+                            entity_id: !input dim_step_helper
+                          data:
+                            value: "{{ repeat.index }}"
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: >-
+                                    {{ (on_lights | select('is_state', 'on') | list) | length > 0 }}
+                              sequence:
+                                - action: light.turn_on
+                                  target:
+                                    entity_id: >-
+                                      {{ on_lights | select('is_state', 'on') | list }}
+                                  data:
+                                    rgb_color: "{{ night_rgb }}"
+                                    brightness: >-
+                                      {% set target = [1, (min_brightness_pct * 255 / 100) | round | int] | max %}
+                                      {{ [1, (255 - (255 - target) * repeat.index / 10) | round | int] | max }}
+                                    transition: "{{ step_interval }}"
+                        - delay:
+                            seconds: "{{ step_interval }}"
+                  - event: night_mode_started
+                    event_data:
+                      source: "{{ trigger.id }}"
+      # -------------------------------------------------------------- LIGHT ON
+      - conditions:
+          - condition: trigger
+            id: light_on
+          - condition: state
+            entity_id: !input active_helper
+            state: "on"
+          - condition: template
+            value_template: >-
+              {{ trigger.entity_id not in sunrise_lights
+                 or (lights.index(trigger.entity_id) + 1) | string in touched_indices }}
+          - condition: template
+            value_template: >-
+              {% set target = now() %}
+              {% if restore_mode == 'fixed' %}
+                {% set restore = today_at(restore_time_str) %}
+                {% if restore < target %}
+                  {% set restore = restore + timedelta(days=1) %}
+                {% endif %}
+                {{ (restore - target).total_seconds() > 600 }}
+              {% else %}
+                {% set rising = state_attr('sun.sun', 'next_rising') %}
+                {{ rising == none or (as_timestamp(rising) - as_timestamp(target)) > 600 }}
+              {% endif %}
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ trigger.entity_id }}"
+            data:
+              rgb_color: "{{ night_rgb }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_lights_helper
+            data:
+              value: >-
+                {% set index = (lights.index(trigger.entity_id) + 1) | string %}
+                {% set items = touched_indices %}
+                {% if index not in items %}{% set items = items + [index] %}{% endif %}
+                {{ items | join(', ') }}
+          - action: input_text.set_value
+            target:
+              entity_id: !input pending_lights_helper
+            data:
+              value: >-
+                {% set index = (lights.index(trigger.entity_id) + 1) | string %}
+                {{ pending_indices | reject('eq', index) | join(', ') }}
+      # -------------------------------------------- LIGHT ON, PENDING WHITE (C2)
+      - conditions:
+          - condition: trigger
+            id: light_on
+          - condition: state
+            entity_id: !input active_helper
+            state: "off"
+          - condition: template
+            value_template: >-
+              {{ (lights.index(trigger.entity_id) + 1) | string in pending_indices }}
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ trigger.entity_id }}"
+            data:
+              color_temp_kelvin: "{{ restore_color_temp }}"
+              brightness: "{{ (restore_brightness_pct * 255 / 100) | round | int }}"
+              transition: "{{ restore_transition }}"
+          - action: input_text.set_value
+            target:
+              entity_id: !input pending_lights_helper
+            data:
+              value: >-
+                {% set index = (lights.index(trigger.entity_id) + 1) | string %}
+                {{ pending_indices | reject('eq', index) | join(', ') }}
+      # --------------------------------------------------------- SUNRISE HANDOVER
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ is_state(active_helper, 'on')
+                 and sunrise_automation not in [{}, none, '']
+                 and sunrise_lights | length > 0
+                 and (trigger.id == 'handover_time'
+                      or (trigger.id == 'handover_automation'
+                          and trigger.event.data.get('entity_id') == sunrise_automation)) }}
+        sequence:
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_lights_helper
+            data:
+              value: >-
+                {% set ns = namespace(items=[]) %}
+                {% for light in sunrise_lights %}
+                  {% if light in lights %}
+                    {% set ns.items = ns.items + [(lights.index(light) + 1) | string] %}
+                  {% endif %}
+                {% endfor %}
+                {{ touched_indices | reject('in', ns.items) | join(', ') }}
+          - action: input_text.set_value
+            target:
+              entity_id: !input pending_lights_helper
+            data:
+              value: >-
+                {% set ns = namespace(items=[]) %}
+                {% for light in sunrise_lights %}
+                  {% if light in lights %}
+                    {% set ns.items = ns.items + [(lights.index(light) + 1) | string] %}
+                  {% endif %}
+                {% endfor %}
+                {{ pending_indices | reject('in', ns.items) | join(', ') }}
+          - repeat:
+              for_each: "{{ al_switches }}"
+              sequence:
+                - action: adaptive_lighting.set_manual_control
+                  data:
+                    entity_id: "{{ repeat.item }}"
+                    lights: !input sunrise_lights
+                    manual_control: false
+          - event: night_mode_sunrise_handover
+            event_data:
+              source: "{{ trigger.id }}"
+      # --------------------------------------------------------------- RESTORE
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ (trigger.id == 'restore_event'
+                  or (trigger.id == 'restore_fixed' and restore_mode == 'fixed')
+                  or (trigger.id == 'restore_sunrise' and restore_mode == 'sunrise'))
+                 and is_state(active_helper, 'on') }}
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input active_helper
+          - action: input_number.set_value
+            target:
+              entity_id: !input dim_step_helper
+            data:
+              value: 0
+          - repeat:
+              for_each: "{{ al_switches }}"
+              sequence:
+                - action: adaptive_lighting.set_manual_control
+                  data:
+                    entity_id: "{{ repeat.item }}"
+                    lights: "{{ lights | reject('in', sunrise_lights) | list }}"
+                    manual_control: false
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ al_sleep_mode }}"
+                sequence:
+                  - action: adaptive_lighting.change_switch_settings
+                    data:
+                      entity_id: !input al_switches
+                      sleep_rgb_color: [255, 56, 0]
+                  - action: switch.turn_off
+                    target:
+                      entity_id: !input al_sleep_switches
+              - conditions: []
+                sequence:
+                  - action: switch.turn_on
+                    target:
+                      entity_id: !input al_switches
+          - repeat:
+              count: "{{ touched_lights | length }}"
+              sequence:
+                - variables:
+                    target_light: "{{ touched_lights[repeat.index - 1] }}"
+                    target_index: "{{ (lights.index(target_light) + 1) | string }}"
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ target_light not in sunrise_lights }}"
+                        - condition: template
+                          value_template: "{{ is_state(target_light, 'on') }}"
+                      sequence:
+                        - action: light.turn_on
+                          continue_on_error: true
+                          target:
+                            entity_id: "{{ target_light }}"
+                          data:
+                            color_temp_kelvin: "{{ restore_color_temp }}"
+                            brightness: "{{ (restore_brightness_pct * 255 / 100) | round | int }}"
+                            transition: "{{ restore_transition }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ target_light not in sunrise_lights }}"
+                        - condition: template
+                          value_template: "{{ not is_state(target_light, 'on') }}"
+                      sequence:
+                        - action: input_text.set_value
+                          target:
+                            entity_id: !input pending_lights_helper
+                          data:
+                            value: >-
+                              {% set items = pending_indices %}
+                              {% if target_index not in items %}
+                                {% set items = items + [target_index] %}
+                              {% endif %}
+                              {{ items | join(', ') }}
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_lights_helper
+            data:
+              value: ""
+          - event: night_mode_restored
+            event_data:
+              source: "{{ trigger.id }}"
+      # --------------------------------------------------------------- STARTUP
+      - conditions:
+          - condition: trigger
+            id: startup
+          - condition: state
+            entity_id: !input active_helper
+            state: "on"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input active_helper
+          - action: input_number.set_value
+            target:
+              entity_id: !input dim_step_helper
+            data:
+              value: 0
+          - action: input_text.set_value
+            target:
+              entity_id: !input active_lights_helper
+            data:
+              value: ""
+          - action: input_text.set_value
+            target:
+              entity_id: !input pending_lights_helper
+            data:
+              value: ""
+          - repeat:
+              for_each: "{{ al_switches }}"
+              sequence:
+                - action: adaptive_lighting.set_manual_control
+                  data:
+                    entity_id: "{{ repeat.item }}"
+                    manual_control: false
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ al_sleep_mode }}"
+                sequence:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: !input al_sleep_switches
+              - conditions: []
+                sequence: []
+          - action: switch.turn_on
+            target:
+              entity_id: !input al_switches
+          - event: night_mode_restored
+            event_data:
+              source: startup
+mode: parallel
+max: 3

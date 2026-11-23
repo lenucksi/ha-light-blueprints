@@ -1,0 +1,68 @@
+# Paste into automations.yaml (or an included automations file) and reload automations.
+# Replace every placeholder with entity IDs from your own instance.
+
+- id: night_mode
+  alias: Night Mode
+  description: Red night mode with sunrise handover
+  use_blueprint:
+    path: night-mode/night-mode.yaml
+    input:
+      active_helper: input_boolean.night_mode_active
+      dim_step_helper: input_number.night_mode_dim_step
+      active_lights_helper: input_text.night_mode_active_lights
+      pending_lights_helper: input_text.night_mode_pending_lights
+      al_switches:
+      - switch.adaptive_lighting_<profile>
+      al_sleep_switches: []
+      lights:
+      - light.<first_light>
+      - light.<second_light>
+      start_time: '23:00:00'
+      days_of_week:
+      - mon
+      - tue
+      - wed
+      - thu
+      - fri
+      - sat
+      - sun
+      dim_duration: 60
+      min_brightness_pct: 1
+      rgb_preset: red
+      al_sleep_mode: false
+      restore_mode: sunrise
+      restore_brightness_pct: 100
+      restore_color_temp: 2700
+      restore_transition: 2
+      sunrise_automation: automation.<sunrise_automation>
+      sunrise_lights:
+      - light.<sunrise_light_1>
+      - light.<sunrise_light_2>
+      sunrise_handover_time: '05:30:00'
+
+- id: sunrise_simulation
+  alias: Sunrise Simulation
+  description: Artificial sunrise for the same lights
+  use_blueprint:
+    path: sunrise/sunrise_simulation.yaml
+    input:
+      target_lights:
+      - light.<sunrise_light_1>
+      - light.<sunrise_light_2>
+      start_mode: fixed
+      start_time: '06:30:00'
+      duration_min: 20
+      step_seconds: 30
+      start_color: [255, 100, 20]
+      rgb_phase: 0.6
+      warm_ct_kelvin: 2800
+      end_kelvin: 4500
+      start_brightness: 1
+      max_brightness: 60
+      brightness_gamma: 1.5
+      hold_min: 0
+      end_action: stay
+      schedule_days: workdays
+      pause_adaptive_lighting: true
+      adaptive_lighting_switches:
+      - switch.adaptive_lighting_<profile>
