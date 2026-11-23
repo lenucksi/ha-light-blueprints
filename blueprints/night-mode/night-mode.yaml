@@ -298,6 +298,8 @@ triggers:
   - id: handover_automation
     trigger: event
     event_type: automation_triggered
+    event_data:
+      entity_id: !input sunrise_automation
   - id: handover_time
     trigger: time
     at: !input sunrise_handover_time
@@ -310,7 +312,11 @@ triggers:
     from: "off"
     to: "on"
 
-conditions: []
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.id != 'handover_automation'
+         or trigger.event.data.get('entity_id') != this.entity_id }}
 
 actions:
   - choose:
