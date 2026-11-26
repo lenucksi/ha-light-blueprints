@@ -8,6 +8,7 @@
     path: night-mode/night-mode.yaml
     input:
       active_helper: input_boolean.night_mode_active
+      sunrise_handover_helper: input_boolean.night_mode_sunrise_handover
       dim_step_helper: input_number.night_mode_dim_step
       active_lights_helper: input_text.night_mode_active_lights
       pending_lights_helper: input_text.night_mode_pending_lights

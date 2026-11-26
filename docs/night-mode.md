@@ -16,7 +16,7 @@ control uses the services Adaptive Lighting already provides:
 
 ## Requirements
 
-Create four helpers in **Settings → Devices & Services → Helpers** before
+Create five helpers in **Settings → Devices & Services → Helpers** before
 importing the blueprint:
 
 | Helper | Type | Purpose |
@@ -25,6 +25,7 @@ importing the blueprint:
 | `input_number.night_mode_dim_step` | Number (0–10, step 1) | Stores the current dim step for diagnostics. |
 | `input_text.night_mode_active_lights` | Text (255 chars) | Comma-separated **1-based indices** of the lights in the Lights list that were active during the night. |
 | `input_text.night_mode_pending_lights` | Text (255 chars) | Indices of lights that still need a white command the next time they are switched on. |
+| `input_boolean.night_mode_sunrise_handover` | Toggle | Records whether the sunrise lights have already been handed over. |
 
 Indices are used instead of entity IDs because seven full entity IDs would
 exceed the 255 character limit of `input_text`. The index is the position of a
@@ -33,11 +34,11 @@ in a fixed order.
 
 ## Setup
 
-1. Import [`night-mode.yaml`](../blueprints/night-mode/night-mode.yaml) via
+1. Import [`night-mode.yaml`](../blueprints/automation/night-mode.yaml) via
    **Settings → Automations & scenes → Blueprints → Import Blueprint** (or use
-   the import badge in the [README](../README.md#2-import-the-blueprints)).
+   the import badge in the [README blueprint table](../README.md#automation-examples)).
 2. Create an automation from the blueprint and select:
-   - the four helpers above,
+   - the five helpers above,
    - the Adaptive Lighting **main profile switches** to pause,
    - the lights to control, in a fixed order,
    - optional sleep-mode switches if you use sleep mode,
@@ -85,10 +86,13 @@ possible in the morning.
 The **Sunrise lights** are ordinary night-mode lights until the handover: they
 are dimmed red and tracked like every other light. The handover happens at
 `sunrise_handover_time` (default 05:30) or when the selected sunrise automation
-starts (`automation_triggered`), whichever comes first. It removes the sunrise
-light indices from the touched and pending lists and clears their manual
-control, while the rest of the lights **stay in night mode**. The sunrise
-automation then owns their color and brightness.
+starts (`automation_triggered`), whichever comes first. It sets the
+`night_mode_sunrise_handover` helper to `on`, removes the sunrise light indices
+from the touched and pending lists and clears their manual control, while the
+rest of the lights **stay in night mode**. The sunrise automation then owns
+their color and brightness. Before the handover, sunrise lights are painted red
+even if they were off at activation and switched on later; the helper flag, not
+the touched list, decides which side owns them.
 
 The night ends at one of these triggers:
 

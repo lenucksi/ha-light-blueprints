@@ -2,6 +2,8 @@
 input_boolean:
   night_mode_active:
     name: Night Mode active
+  night_mode_sunrise_handover:
+    name: Night Mode sunrise handover
 input_number:
   night_mode_dim_step:
     name: Night Mode dim step

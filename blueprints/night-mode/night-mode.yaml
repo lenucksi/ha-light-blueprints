@@ -27,6 +27,15 @@ blueprint:
         entity:
           filter:
             domain: input_boolean
+    sunrise_handover_helper:
+      name: Sunrise handover helper
+      description: >-
+        input_boolean that records whether the sunrise lights have already
+        been handed over. Create it before importing this blueprint.
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
     dim_step_helper:
       name: Dim step helper
       description: input_number (0-10, step 1) that stores the current dim step.
@@ -229,6 +238,7 @@ blueprint:
 
 variables:
   active_helper: !input active_helper
+  sunrise_handover_helper: !input sunrise_handover_helper
   dim_step_helper: !input dim_step_helper
   active_lights_helper: !input active_lights_helper
   pending_lights_helper: !input pending_lights_helper
@@ -338,6 +348,9 @@ actions:
                   - action: input_boolean.turn_on
                     target:
                       entity_id: !input active_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input sunrise_handover_helper
                   - action: input_number.set_value
                     target:
                       entity_id: !input dim_step_helper
@@ -438,7 +451,7 @@ actions:
           - condition: template
             value_template: >-
               {{ trigger.entity_id not in sunrise_lights
-                 or (lights.index(trigger.entity_id) + 1) | string in touched_indices }}
+                 or is_state(sunrise_handover_helper, 'off') }}
           - condition: template
             value_template: >-
               {% set target = now() %}
@@ -510,6 +523,9 @@ actions:
                       or (trigger.id == 'handover_automation'
                           and trigger.event.data.get('entity_id') == sunrise_automation)) }}
         sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input sunrise_handover_helper
           - action: input_text.set_value
             target:
               entity_id: !input active_lights_helper
@@ -557,6 +573,9 @@ actions:
           - action: input_boolean.turn_off
             target:
               entity_id: !input active_helper
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input sunrise_handover_helper
           - action: input_number.set_value
             target:
               entity_id: !input dim_step_helper
@@ -643,6 +662,9 @@ actions:
           - action: input_boolean.turn_off
             target:
               entity_id: !input active_helper
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input sunrise_handover_helper
           - action: input_number.set_value
             target:
               entity_id: !input dim_step_helper

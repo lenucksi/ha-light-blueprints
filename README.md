@@ -26,7 +26,7 @@ The night-mode blueprint hands the sunrise lights over at 05:30 (or when the sun
 | Home Assistant ≥ 2025.9 | Blueprint schema and `today_at()`/`as_timestamp()` templates |
 | Adaptive Lighting with `set_manual_control` and `change_switch_settings` | Pausing and resuming profiles |
 | `sun.sun` enabled | Real-sunrise restore fallback |
-| Four helper entities | Active state, dim step and two compact index lists |
+| Five helper entities | Active state, handover flag, dim step and two compact index lists |
 
 Recommended Adaptive Lighting settings: `autoreset_control_seconds: 0` and `detect_non_ha_changes: true`.
 
@@ -34,7 +34,7 @@ Recommended Adaptive Lighting settings: `autoreset_control_seconds: 0` and `dete
 
 > Replace every placeholder (`<profile>`, `<lampe>`, `<sunrise-automation>`) with entities from your own instance.
 
-### 1. Create the four helpers
+### 1. Create the five helpers
 
 Create them in **Settings → Devices & Services → Helpers**, or paste [`examples/helpers.yaml`](examples/helpers.yaml) into your configuration (restart required for YAML helpers).
 
@@ -44,6 +44,7 @@ Create them in **Settings → Devices & Services → Helpers**, or paste [`examp
 | `input_number.night_mode_dim_step` | Number, 0–10, step 1 | Current dim step |
 | `input_text.night_mode_active_lights` | Text, 255 chars | **1-based indices** of touched lights |
 | `input_text.night_mode_pending_lights` | Text, 255 chars | Indices of lights awaiting a white command |
+| `input_boolean.night_mode_sunrise_handover` | Toggle | Whether the sunrise lights have been handed over |
 
 The lights are stored as indices because seven full entity IDs exceed the 255-character limit of `input_text`. Keep the **Lights** input in a fixed order.
 
