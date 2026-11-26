@@ -34,7 +34,7 @@ in a fixed order.
 
 ## Setup
 
-1. Import [`night-mode.yaml`](../blueprints/automation/night-mode.yaml) via
+1. Import [`night-mode.yaml`](../blueprints/night-mode/night-mode.yaml) via
    **Settings → Automations & scenes → Blueprints → Import Blueprint** (or use
    the import badge in the [README blueprint table](../README.md#automation-examples)).
 2. Create an automation from the blueprint and select:
